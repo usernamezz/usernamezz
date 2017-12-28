@@ -1,0 +1,193 @@
+<html xmlns:th="http://www.thymeleaf.org" xmlns:layout="http://www.ultraq.net.nz/thymeleaf/layout"
+      xmlns:v-bind="http://www.w3.org/1999/xhtml"
+      layout:decorator="layout">
+<head>
+    <title>Main Thread</title>
+    <style>
+        .msg-card {
+            margin-bottom: 20px;
+        }
+        .send-msg-card {
+            margin-bottom: 20px;
+        }
+        .anonymous-checkbox {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+
+<body>
+<div layout:fragment="content">
+    <div id="app">
+        <div class="mdui-card send-msg-card mdui-hoverable" id="msg-input-card">
+            <div class="mdui-card-primary">
+                <div class="mdui-card-primary-title mdui-text-color-theme">Left a message:</div>
+            </div>
+            <div class="mdui-card-content mdui-textfield">
+                <textarea class="mdui-textfield-input" id="msg-input-textarea" v-model="newMsg" placeholder="Say something..."></textarea>
+            </div>
+            <div class="mdui-card-actions">
+                <button class="mdui-btn mdui-ripple mdui-float-right mdui-color-green mdui-text-color-white" @click="addMsg">
+                    <i class="mdui-icon mdui-icon-left material-icons">send</i>send</button>
+                <label class="mdui-checkbox anonymous-checkbox">
+                    <input id="anonymous-checkbox" type="checkbox"/>
+                    <i class="mdui-checkbox-icon"></i>
+                    Anonymous
+                </label>
+            </div>
+
+        </div>
+        <div class="msg-card-box" id="msg-box">
+            <div class="mdui-card msg-card mdui-hoverable" v-for="msg in msgs" v-bind:id="'msg-card-' + msg.msg_id">
+
+                <!-- 卡片的标题和副标题 -->
+                <div class="mdui-card-primary">
+                    <div class="mdui-card-primary-title mdui-text-color-theme">{{ msg.author }}</div>
+                    <div class="mdui-card-primary-subtitle">post at {{ displayTime(msg) }}</div>
+                </div>
+
+                <div class="mdui-typo">
+                    <hr/>
+                </div>
+
+                <!-- 卡片的内容 -->
+                <div class="mdui-card-content">
+                <span class="mdui-text-color-theme-secondary" v-if="msg.reply_to != null">
+                    Reply to: <a  data-scroll v-bind:href="'#msg-card-' + msg.reply_to"># {{ msg.reply_to }}</a>:<br/>
+                </span>
+                    <span v-html="displayMsg(msg)"></span>
+                </div>
+
+                <!-- 卡片的按钮 -->
+                <div class="mdui-card-actions">
+                    <div class="mdui-text-color-theme-secondary mdui-float-left">
+                        <a  data-scroll v-bind:href="'#msg-card-' + msg.msg_id"># {{ msg.msg_id }}</a></div>
+                    <button class="mdui-btn mdui-ripple mdui-float-right mdui-color-blue mdui-text-color-white">
+                        <i class="mdui-icon mdui-icon-left material-icons">share</i>share</button>
+                    <button class="mdui-btn mdui-ripple mdui-float-right mdui-color-deep-orange mdui-text-color-white"
+                            @click="replyMsg(msg)">
+                        <i class="mdui-icon mdui-icon-left material-icons">reply</i>Reply</button>
+                    <!-- <button class="mdui-btn mdui-btn-icon mdui-float-right"><i class="mdui-icon material-icons">expand_more</i></button> -->
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/vue"></script>
+    <script>
+
+        if (!String.prototype.format) {
+            String.prototype.format = function() {
+                var args = arguments;
+                return this.replace(/{(\d+)}/g, function(match, number) {
+                    return typeof args[number] !== 'undefined'
+                        ? args[number]
+                        : match
+                        ;
+                });
+            };
+        }
+
+        var vue = new Vue({
+            el: '#app',
+            data: {
+                msgs: [],
+                newMsg: ''
+            },
+            methods: {
+                addMsg: function() {
+                    var value = this.newMsg && this.newMsg.trim();
+                    if (!value) {
+                        return
+                    }
+                    var reply_re = /^#reply_to:\(#(\d+)\):((.|[\n\r])*)$/m;
+                    var content, reply_to;
+
+                    var match = reply_re.exec(value);
+                    if (match !== null) {
+                        reply_to = match[1].trim();
+                        content = match[2].trim();
+                        if (!content) {
+                            console.log(match);
+                            return;
+                        }
+                    } else {
+                        content = value;
+                        reply_to = null;
+                    }
+                    var msg_data = {
+                        content: content,
+                        anonymous: $('#anonymous-checkbox').is(":checked"),
+                        reply_to: reply_to === null ? null : Number(reply_to)
+                    };
+                    $.ajax({
+                        type: "POST",
+                        url: '/api/message/add',
+                        contentType : 'application/json',
+                        // async: false,
+                        data: JSON.stringify(msg_data),
+                        success: function (res) {
+                            if (res.code === 0) {
+                                vue.newMsg = '';
+                                mdui.alert(res.msg);
+                            } else if (res.code === -1) {
+                                mdui.dialog({
+                                    content: res.msg,
+                                    buttons: [
+                                        {
+                                            text: 'ok',
+                                            onClick: function(){
+                                                window.location = '/login';
+                                            }
+                                        }
+                                    ]
+                                });
+                            } else {
+                                mdui.alert(res.msg);
+                            }
+                        }
+                    });
+                },
+                displayMsg: function(msg) {
+                    var dis = $('<div/>').text(msg.content).html();
+                    return dis.replace(/\n/gm, '<br/>');
+                },
+                replyMsg: function(msg) {
+                    this.newMsg = '#reply_to:(#' + msg.msg_id + '):\n';
+                    var anchor = document.querySelector('#msg-input-card');
+                    scroll.animateScroll(anchor);
+                    $('#msg-input-textarea').focus();
+                },
+                removeMsgs: function() {
+                    msgStorage.uid = 0;
+                    return this.msgs = [];
+                },
+                displayTime: function (msg) {
+                    var newDate = new Date();
+                    newDate.setTime(msg.post_time);
+                    return newDate.toLocaleTimeString()
+                }
+            }
+        });
+
+        function fetchMsgs() {
+            $.ajax({
+                type: "GET",
+                url: '/api/message/all',
+                contentType : 'application/json',
+                // async: false,
+                success: function (res) {
+                    if (res.code === 0) {
+                        vue.msgs = res.data;
+                    } else {
+                        console.log(res);
+                    }
+                }
+            });
+        }
+        fetchMsgs();
+    </script>
+</div>
+</body>
+</html>
